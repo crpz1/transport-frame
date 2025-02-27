@@ -14,7 +14,10 @@
 
 #include "Inkplate.h"
 #include <ArduinoJson.h>
-#include <TimeLib.h>
+
+#include <time.h> 
+#include <stdio.h>
+#include <math.h>
 
 Inkplate display(INKPLATE_3BIT);
 
@@ -63,6 +66,7 @@ void setup() {
 void loop() {
     // wait for WiFi connection
     if((wifiMulti.run() == WL_CONNECTED)) {
+        configTime(39600, 0, "pool.ntp.org");
 
         http.begin("https://api.transport.nsw.gov.au/v1/tp/departure_mon?outputFormat=rapidJSON&coordOutputFormat=EPSG%3A4326&mode=direct&type_dm=stop&name_dm=10111010&departureMonitorMacro=true&excludedMeans=11&TfNSWDM=true&version=10.2.1.42");
         //http.begin("192.168.1.12", 80, "/test.html");
@@ -84,6 +88,11 @@ void loop() {
                 JsonArray departures = doc["stopEvents"];
                 const size_t numberOfDepartures = departures.size();
                 Serial.printf("Decoded departures: %d", numberOfDepartures);
+
+                struct tm nowTm;
+                getLocalTime(&nowTm);
+                time_t now = mktime(&nowTm);
+                
                 for (JsonObject departure : departures) {
                     const char* routeName = departure["transportation"]["description"];
                     const char* routeNumber = departure["transportation"]["number"];
@@ -91,7 +100,25 @@ void loop() {
                     if (estimatedDeparture == nullptr) {
                         estimatedDeparture = departure["departureTimePlanned"];
                     }
-                    Serial.printf("[%s] %s departing at %s\n", routeNumber, routeName, estimatedDeparture);
+
+                    const time_t departureTime = utcToTime(estimatedDeparture) - 7200;
+                    struct tm* departureTm = gmtime(&departureTime);
+                    double timeDifference = difftime(departureTime, now);
+
+                    double minsToDeparture = round(timeDifference / 60) - 660;
+                    char* timeString = (char*) malloc(sizeof(char) * 32);
+
+                    if (minsToDeparture > 60.0) {
+                        if (departureTm->tm_yday > nowTm.tm_yday) {
+                            strftime(timeString, 30, "on %A at %I:%M%p", departureTm);
+                        }
+                        strftime(timeString, 30, "at %I:%M%p", departureTm);
+                    } else {
+                        sprintf(timeString, "in %f mins", minsToDeparture);
+                    }
+                    
+                    Serial.printf("[%s] %s departing %s\n", routeNumber, routeName, timeString);
+                    free(timeString);
                 }
                 //http.writeToStream(&USE_SERIAL);
             }
@@ -105,5 +132,23 @@ void loop() {
     delay(30000);
 }
 
+time_t utcToTime(const char* utc) {
+    int y = 0, mo = 0, d = 0, h = 0, mi = 0, s = 0;
 
+    sscanf(utc, "%d-%d-%dT%d:%d:%d", &y, &mo, &d, &h, &mi, &s);
+
+    struct tm result = {0};
+    result.tm_year = y - 1900;
+    result.tm_mon = mo - 1;
+    result.tm_mday = d + 1;
+    result.tm_hour = h;
+    result.tm_min = mi;
+    result.tm_sec = s;
+    result.tm_isdst = -1;
+
+    time_t tt;
+    tt = mktime(&result);
+
+    return tt;
+}
 
