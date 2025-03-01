@@ -107,6 +107,10 @@ void loop() {
                 display.setTextColor(0, 7);
                 display.setFont();
                 display.setTextSize(1);
+
+                char* currentTimeString = (char*) malloc(sizeof(char) * 16);
+                strftime(currentTimeString, 14, "%l:%M:%S %p", &nowTm);
+                digital_clock2_content = String(currentTimeString);
                 
                 for (JsonObject departure : departures) {
                     const char* routeName = departure["transportation"]["description"];
@@ -161,6 +165,7 @@ void loop() {
                 }
                 mainDraw();
                 display.display();
+                free(currentTimeString);
                 //http.writeToStream(&USE_SERIAL);
             }
         } else {
